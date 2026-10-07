@@ -335,6 +335,12 @@ class AdaptiveSettingsUiTest {
         val vehicle = visibleIn(R.string.settings_vehicle)
         val advanced = visibleIn(R.string.settings_advanced)
 
+        val ambientTitle = text(R.string.settings_ambient_title)
+        assertTrue(ambientTitle in advanced)
+        for (category in listOf(display, audio, vehicle)) {
+            assertFalse(ambientTitle in category)
+        }
+
         assertTrue(audio.any { it.startsWith(text(R.string.music_buffer)) })
         listOf(R.string.main_buffered_audio, R.string.efficient_video, R.string.smooth_video, R.string.call_echo_cancellation, R.string.call_voice_filter, R.string.contrib_audio_home_toggle_audio_focus).forEach {
             assertTrue(text(it), text(it) in advanced)

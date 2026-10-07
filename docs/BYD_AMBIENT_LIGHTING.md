@@ -1,6 +1,8 @@
 # Optional BYD ambient lighting
 
-Contributed by 寒叙 (@Hanxu4131), adapted from original ambient-light work in the contributor's local DiPlay-based BYD CarPlay project. This patch is based on upstream DiPlay main b26cd544 (v0.2.13). It keeps DiPlay branding, application identifiers and existing network behavior.
+Contributed by 寒叙 (@Hanxu4131), adapted from original ambient-light work in the contributor's local DiPlay-based BYD CarPlay project. The original [upstream PR #345](https://github.com/shihabal3amri/DiPlay/pull/345) was based on main b26cd544 (v0.2.13). This fork ports commit 60300d8977c04f875953aae7a1facdf546b36696 onto `dev` (v0.2.14), preserving the driver-screen music/artwork companion and call-audio handling. Application identifiers and existing network behavior are unchanged.
+
+Open **Settings → Advanced → Music ambient lighting (experimental) → Ambient light settings**. All seven app languages have translated controls. Enable control and music following, choose OEM color numbers, and set a maximum brightness above 0 to see music-dependent changes. The default brightness is the minimum, even if control is enabled. Changes apply after Save without restarting CarPlay.
 
 Configure the feature while parked. Control is off by default. Saving an enabled configuration first performs a read-only check using existing ADB authorization and the vehicle lamp interface. The feature does not enable ADB, offer an authorization key for approval or change debugging settings. A failed check leaves the saved configuration unchanged. Access setup remains a separate user-controlled action.
 
@@ -20,9 +22,13 @@ Restoration is best effort. Power loss, forced process death, a permanently bloc
 
 ## Evidence and verification
 
-The source ambient-light feature was field-tested by the contributor on a 2023 BYD Tang DM-i Champion Edition / platform-controller 21. These local observations motivated this module; they do not verify this upstream integration, other model years or every recovery path. Exact earlier-build behavior should be attributed to that local build only. This public patch has not been installed or tested in a vehicle.
+The source ambient-light feature was field-tested by the contributor on a 2023 BYD Tang DM-i Champion Edition / platform-controller 21. These observations motivated the original module; they do not verify this fork integration, other model years or every recovery path. Exact earlier-build behavior should be attributed to that local build only.
 
-Local validation on 2026-10-06 passed shared/common Kotlin compilation, 63 focused shared tests and three focused UI tests. Native build tasks were excluded. These checks cover source compilation and simulated UI behavior; no APK or vehicle validation was performed.
+On 2026-10-08, a separate controlled shell probe on a Sealion 06 / DiLink 5 / Android API 32 confirmed readable state, the expected setter signatures, physical dimming (raw brightness 6 → 3), color changes (OEM 28 → 1), and restoration to the original five-field state. The user observed both changes. See [BYD_AMBIENT_PROBE.md](BYD_AMBIENT_PROBE.md) for the scope and limits. This verifies the lamp API on that firmware; continuous music following and this APK still require live validation.
+
+The contributor's local validation on 2026-10-06 passed shared/common Kotlin compilation, 63 focused shared tests and three focused UI tests. Native build tasks were excluded. Those results cover the original source and simulated UI behavior; no APK or vehicle validation was performed for that submitted port.
+
+Fork validation on 2026-10-08 passed the complete `AGENTS.md` Android checks plus the music companion's tests, lint and debug build: 1,028 shared tests, 864 common/UI tests, four home tests and three companion tests (1,899 total, no failures). The common suite checks all locale translations, placement only in Advanced, localized palette updates, Cancel, and the read-only support gate. The read-only probe's Java harness and four Python tests also passed. A public-tree scan found no credential files. Vehicle installation and live music-following checks were deferred by the user; these automated results do not establish continuous lamp behavior on the car.
 
 The focused JVM suite covers playback ownership, activity policy, written-versus-played envelopes, sampled beats, palette/low-frequency analysis, brightness smoothing, write cadence, fake-client recovery, protocol validation, restore order and worker ownership. Additional preference tests cover missing keys, legacy single-color settings and malformed values. UI tests cover Cancel, failed read-only access checks and a completed check after the dialog was canceled. Compilation and test results for this patch are recorded by the contribution review, separately from earlier vehicle observations.
 
@@ -35,4 +41,4 @@ The patch contains source and focused tests only. No local diagnostic logs, vehi
 ./gradlew --offline :shared:compileDebugKotlin :common:compileDebugKotlin
 ```
 
-Before a release, check the default-off UI, both languages, failed authorization without new prompts, unsupported lamp states, Save/Cancel, music pause/resume, disconnect/reconnect, disabling control with unequal front/rear states, rapid setting changes and the complete normal vehicle workload while parked. Public build checks use no private authentication inputs.
+Before a release, check the default-off UI, all languages, failed authorization without new prompts, unsupported lamp states, Save/Cancel, music pause/resume, disconnect/reconnect, disabling control with unequal front/rear states, rapid setting changes and the complete normal vehicle workload while parked. Public build checks use no private authentication inputs.

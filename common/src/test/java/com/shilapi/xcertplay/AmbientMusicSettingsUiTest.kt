@@ -5,6 +5,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Switch
+import android.widget.Button
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.AmbientMusicSettings
 import java.util.concurrent.CompletableFuture
@@ -51,7 +52,7 @@ class AmbientMusicSettingsUiTest {
         assertEquals(1, checks)
         assertFalse(AmbientMusicSettings.load(activity).enabled)
         assertTrue(dialog.isShowing)
-        assertEquals(activity.getString(R.string.ambient_unavailable), ShadowToast.getTextOfLatestToast())
+        assertEquals(activity.getString(R.string.settings_ambient_unavailable), ShadowToast.getTextOfLatestToast())
         assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled)
     }
 
@@ -70,6 +71,22 @@ class AmbientMusicSettingsUiTest {
         assertFalse(AmbientMusicSettings.load(activity).enabled)
     }
 
+    @Test fun paletteDraftUpdatesTheLocalizedRowButCancelKeepsSavedColors() {
+        activity.ambientSupportCheck = { fail("Cancel must not check access"); CompletableFuture.completedFuture(false) }
+        val dialog = open()
+        val row = descendants(dialog.window!!.decorView).filterIsInstance<Button>()
+            .single { it.text.toString() == activity.getString(R.string.settings_ambient_palette_summary, 1) }
+        row.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        val palette = ShadowAlertDialog.getLatestAlertDialog()
+        palette.getButton(AlertDialog.BUTTON_NEUTRAL).performClick()
+        palette.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertEquals(activity.getString(R.string.settings_ambient_palette_summary, 31), row.text.toString())
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        assertEquals(listOf(1), AmbientMusicSettings.load(activity).selectedColors)
+        assertFalse(AmbientMusicSettings.load(activity).enabled)
+    }
+
     private fun open(): AlertDialog {
         ReflectionHelpers.callInstanceMethod<Unit>(activity, "showAmbientConfiguration")
         shadowOf(Looper.getMainLooper()).idle()
@@ -77,7 +94,7 @@ class AmbientMusicSettingsUiTest {
     }
 
     private fun enableSwitch(dialog: AlertDialog): Switch = descendants(dialog.window!!.decorView)
-        .filterIsInstance<Switch>().single { it.contentDescription == activity.getString(R.string.ambient_enable) }
+        .filterIsInstance<Switch>().single { it.contentDescription == activity.getString(R.string.settings_ambient_enable) }
 
     private fun descendants(view: View): List<View> = buildList {
         add(view)

@@ -693,4 +693,39 @@
     <string name="settings_interface_size">介面大小</string>
     <string name="settings_interface_size_auto">自動</string>
     <string name="settings_interface_size_hint">DiPlay 自身畫面中文字與控制項的大小。自動模式會在大尺寸低密度螢幕上放大它們。不影響 CarPlay。</string>
+
+    <!-- Music ambient lighting -->
+    <string name="settings_ambient_title">音樂氛圍燈（實驗性）</string>
+    <string name="settings_ambient_configuration">氛圍燈設定</string>
+    <string name="settings_ambient_static">固定</string>
+    <string name="settings_ambient_energy">隨聲音強弱</string>
+    <string name="settings_ambient_beat">隨節拍</string>
+    <string name="settings_ambient_tempo">估算 BPM</string>
+    <string name="settings_ambient_bass">低音優先</string>
+    <string name="settings_ambient_smart">智慧跟隨</string>
+    <string name="settings_ambient_slow">平順</string>
+    <string name="settings_ambient_standard">標準</string>
+    <string name="settings_ambient_fast">快速</string>
+    <string name="settings_ambient_enabled">已開啟</string>
+    <string name="settings_ambient_disabled">已關閉</string>
+    <string name="settings_ambient_summary">%1$s · %2$s · %3$s · %4$d 色 · 亮度 %5$d</string>
+    <string name="settings_ambient_enable">開啟氛圍燈控制</string>
+    <string name="settings_ambient_enable_description">關閉後嘗試恢復接管前的原車顏色、亮度和區域。需要已有的 ADB 授權。</string>
+    <string name="settings_ambient_music">跟隨音樂</string>
+    <string name="settings_ambient_music_description">播放時隨音樂變化；關閉跟隨則使用固定顏色和亮度。兩種模式在暫停或斷線後都將全部區域維持在最低檔，儲存後生效。</string>
+    <string name="settings_ambient_color_mode">顏色變化方式</string>
+    <string name="settings_ambient_speed">亮度過渡速度</string>
+    <string name="settings_ambient_palette">原車顏色編號（多選）</string>
+    <string name="settings_ambient_palette_summary">顏色 · 已選 %1$d 種</string>
+    <string name="settings_ambient_select_all">全選</string>
+    <string name="settings_ambient_select_one">至少選擇一種顏色</string>
+    <string name="settings_ambient_brightness">亮度上限</string>
+    <string name="settings_ambient_minimum">0（最低亮度）</string>
+    <string name="settings_ambient_area">區域</string>
+    <string name="settings_ambient_front">前排</string>
+    <string name="settings_ambient_rear">後排</string>
+    <string name="settings_ambient_all">全部</string>
+    <string name="settings_ambient_parked_notice">請在停車時設定。實驗性支援部分 BYD 氛圍燈介面，無法保證所有車型和韌體相容。亮度 0 代表原車最低檔，不代表斷電關閉。</string>
+    <string name="settings_ambient_checking">正在檢查…</string>
+    <string name="settings_ambient_unavailable">唯讀檢查失敗：已有的 ADB 授權或支援的氛圍燈介面無法使用，燈光設定未儲存。請在停車時單獨設定存取權限，本功能不會啟用 ADB 或申請授權。</string>
 </resources>

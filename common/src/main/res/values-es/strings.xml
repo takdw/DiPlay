@@ -633,4 +633,39 @@
     <string name="settings_interface_size">Tamaño de la interfaz</string>
     <string name="settings_interface_size_auto">Automático</string>
     <string name="settings_interface_size_hint">Tamaño del texto y los controles en las pantallas de DiPlay. Automático los agranda en pantallas grandes de baja densidad. No afecta a CarPlay.</string>
+
+    <!-- Music ambient lighting -->
+    <string name="settings_ambient_title">Iluminación ambiental con música (experimental)</string>
+    <string name="settings_ambient_configuration">Ajustes de iluminación ambiental</string>
+    <string name="settings_ambient_static">Fijo</string>
+    <string name="settings_ambient_energy">Intensidad del sonido</string>
+    <string name="settings_ambient_beat">Ritmo</string>
+    <string name="settings_ambient_tempo">BPM estimados</string>
+    <string name="settings_ambient_bass">Prioridad de graves</string>
+    <string name="settings_ambient_smart">Seguimiento inteligente</string>
+    <string name="settings_ambient_slow">Suave</string>
+    <string name="settings_ambient_standard">Estándar</string>
+    <string name="settings_ambient_fast">Rápido</string>
+    <string name="settings_ambient_enabled">Activado</string>
+    <string name="settings_ambient_disabled">Desactivado</string>
+    <string name="settings_ambient_summary">%1$s · %2$s · %3$s · %4$d colores · brillo %5$d</string>
+    <string name="settings_ambient_enable">Activar el control de iluminación ambiental</string>
+    <string name="settings_ambient_enable_description">Al desactivarlo se intenta restaurar los colores, el brillo y la zona originales. Se requiere autorización ADB previa.</string>
+    <string name="settings_ambient_music">Seguir la música</string>
+    <string name="settings_ambient_music_description">Durante la reproducción, sigue la música o usa colores y brillo fijos si se desactiva el seguimiento. Al pausar o desconectar, todas las zonas quedan al nivel mínimo en ambos modos. Los cambios se aplican al guardar.</string>
+    <string name="settings_ambient_color_mode">Cambios de color</string>
+    <string name="settings_ambient_speed">Velocidad de transición del brillo</string>
+    <string name="settings_ambient_palette">Números de colores del fabricante (selección múltiple)</string>
+    <string name="settings_ambient_palette_summary">Colores · %1$d seleccionados</string>
+    <string name="settings_ambient_select_all">Seleccionar todos</string>
+    <string name="settings_ambient_select_one">Selecciona al menos un color</string>
+    <string name="settings_ambient_brightness">Brillo máximo</string>
+    <string name="settings_ambient_minimum">0 (nivel mínimo)</string>
+    <string name="settings_ambient_area">Zona</string>
+    <string name="settings_ambient_front">Delantera</string>
+    <string name="settings_ambient_rear">Trasera</string>
+    <string name="settings_ambient_all">Todas</string>
+    <string name="settings_ambient_parked_notice">Configura con el vehículo estacionado. Compatibilidad experimental con algunas interfaces de iluminación BYD; no se garantiza para todos los modelos o versiones del sistema. El nivel 0 es el mínimo del fabricante, no un apagado eléctrico.</string>
+    <string name="settings_ambient_checking">Comprobando…</string>
+    <string name="settings_ambient_unavailable">Falló la comprobación de solo lectura: no hay autorización ADB previa o una interfaz de iluminación compatible. No se guardaron ajustes. Configura el acceso por separado con el vehículo estacionado; esta función no activa ADB ni solicita autorización.</string>
 </resources>
