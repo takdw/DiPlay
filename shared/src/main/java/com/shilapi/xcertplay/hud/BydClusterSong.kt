@@ -348,12 +348,33 @@ internal object BydClusterSong {
         val fields = args.split(' ')
         val expected = listOf("source", "state", "text", "artist").filterIndexed { index, _ ->
             fields.getOrNull(index)?.let { it != "-" } == true
-        } + if (fields.size >= 6) listOf("progress", "time") else emptyList()
-        val results = output.lineSequence().map { it.trim() }.filter { it.contains('=') }
-            .associate { it.substringBefore('=') to it.substringAfter('=').trim().toIntOrNull() }
-        val failed = expected.any { results[it] != 0 } || results.containsKey("write")
-        if (failed) Log.w(TAG, "dashboard write failed: ${output.trim().take(160)}")
-        return !failed
+        }.toSet() + if (fields.size >= 6) setOf("progress", "time") else emptySet()
+        val succeeded = ClusterSongWriteResult.accepted(output, expected)
+        if (!succeeded) Log.w(TAG, "dashboard write failed: incomplete or rejected vendor response")
+        return succeeded
+    }
+}
+
+/** Validate the complete app_process write response, rather than treating an empty response as success. */
+internal object ClusterSongWriteResult {
+    // The PR reporter observed this result on a DiLink 4 Seal while the music card updated.
+    // Accept it only for the instrument writes below; it is not a general shell success code.
+    private const val OBSERVED_VENDOR_RESULT = -2147482648
+    private val OBSERVED_VENDOR_FIELDS = setOf("source", "state", "text")
+
+    fun accepted(output: String, clearing: Boolean = false): Boolean =
+        accepted(output, if (clearing) setOf("state") else OBSERVED_VENDOR_FIELDS)
+
+    fun accepted(output: String, expected: Set<String>): Boolean {
+        if (expected.isEmpty()) return false
+        val received = mutableSetOf<String>()
+        for (line in output.lineSequence().map { it.trim() }.filter { '=' in it }) {
+            val name = line.substringBefore('=').trim()
+            val result = line.substringAfter('=').trim().toIntOrNull() ?: return false
+            if (name !in expected || !received.add(name) ||
+                (result != 0 && !(name in OBSERVED_VENDOR_FIELDS && result == OBSERVED_VENDOR_RESULT))) return false
+        }
+        return received == expected
     }
 }
 

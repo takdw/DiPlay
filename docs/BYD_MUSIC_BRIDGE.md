@@ -26,9 +26,13 @@ Install the companion and matching DiPlay build, and open **DiPlay BYD Music Bri
 
 ## Validation scope
 
-Validation base: upstream commit `e2fd8ea` (DiPlay 0.2.13).
+Initial car-test validation base: upstream commit `e2fd8ea` (DiPlay 0.2.13).
 
 2026-10-07 source checks: 29 focused shared tests, 35 media/artwork/focus tests in Common, and three companion tests passed (67 total, zero failures). Mobile standalone debug and companion debug APKs built; both debug lint tasks passed. Tests cover retained incremental metadata, progress/pause/seek, note/song timers, artwork publication/clearing, media-command forwarding, session cleanup, and focus delegation. The test APKs use matching debug signing certificates. The main APK's two explicitly selected authentication assets match the installed production 0.2.13 APK; these inputs remain outside the repository.
+
+Integration validation on 2026-10-07: merged `dev` at `7887bb7` (DiPlay 0.2.14) into the feature branch and ran the complete repository CI command plus companion tests, lint, and build. Results: 1,832 cases (965 Shared, 860 Common, four Home, three companion), 1,831 passed, one existing macOS wildcard-bind assumption skip, zero failures/errors. Mobile, Home, map-host, and companion debug lint and APK builds passed. The Mobile/Home/map-host builds were source-only, without runtime authentication assets. The public-source credential check passed.
+
+The merge preserves upstream's strict write-response validation and its observed DiLink 4 return value for source/state/title only. Artist, progress, and time require a zero result. Regression tests cover the expanded field set, progress-only updates, complete clearing, missing/duplicate fields, and rejection of the observed return value for unverified fields. Artwork-setting strings are present in every supported locale and marked experimental.
 
 The matching debug APKs were installed alongside the production app on the owner's parked Sealion 06. After launching the companion once, Android reported its bound foreground service and active media session. The companion held permanent media focus and followed live CarPlay metadata, advancing position, a track change from “Nonstop” to “Going Bad (feat. Drake),” and a pause at the source's position. These ADB observations establish live forwarding to the companion; they do not establish what appeared on the driver screen or whether audio and wheel controls behaved correctly.
 

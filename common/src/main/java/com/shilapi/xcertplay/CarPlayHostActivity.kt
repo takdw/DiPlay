@@ -274,6 +274,13 @@ class CarPlayHostActivity : ComponentActivity() {
     private var videoView: View? = null
     private var fallbackVideoView: SurfaceView? = null
     private var fallbackVideoBounds: CarPlaySurfaceBounds? = null
+    // Smooth video (a setting): SurfaceView output with frames released at the iPhone's frame time.
+    private var smoothVideo = false
+    // Sinks whose sessions are being torn down; their decoders may still render to the current surface
+    // until they have released their codecs, so a destroyed surface is detached from them too. A restart
+    // and a shutdown can overlap, so this is a set.
+    private val retiringSinks = java.util.concurrent.CopyOnWriteArraySet<AndroidMediaSink>()
+    internal var sinkReleaseWaitMillis = SINK_RELEASE_WAIT_MILLIS
     private var videoSurfaceProbe: ViewTreeObserver.OnPreDrawListener? = null
     private var pictureBinding: CarPlayPicture.Binding? = null
     private var picturePanel: View? = null
@@ -519,6 +526,8 @@ class CarPlayHostActivity : ComponentActivity() {
             videoSurfaceOwner.replace(surface, releaseOnDetach = false)
             appendLog("SurfaceView video surface created valid=${surface.isValid}")
             attachSurface(surface)
+            // A still CarPlay screen sends no frames, so ask for one instead of showing the parked gap.
+            if (smoothVideo) sink?.refreshPicture(SCREEN_TYPE_MAIN)
             videoView?.let { updateVideoLayout(it.width, it.height) }
         }
 
@@ -529,8 +538,17 @@ class CarPlayHostActivity : ComponentActivity() {
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
-            videoSurfaceOwner.clear(holder.surface)
-            appendLog("SurfaceView video surface destroyed")
+            val surface = holder.surface
+            // The SurfaceHolder contract: nothing may render to the surface once this returns. Every decoder
+            // is asked at once, then waited for against one deadline; each confirms once it has moved,
+            // parked or released its codec, and closing decoders count once their workers exit. With
+            // smooth video the live session's main decoder parks off screen and keeps its state.
+            val live = sink
+            val detaches = (listOfNotNull(live) + retiringSinks).distinct()
+                .map { owner -> owner.beginSurfaceDetach(surface, parkMain = smoothVideo && owner === live) }
+            val confirmed = detaches.map { it.await() }.all { it }
+            videoSurfaceOwner.clear(surface)
+            appendLog("SurfaceView video surface destroyed detachConfirmed=$confirmed")
         }
     }
 
@@ -1477,6 +1495,7 @@ class CarPlayHostActivity : ComponentActivity() {
         safeAreaEditor = buildSafeAreaEditor().apply { visibility = View.GONE }
         root.addView(safeAreaEditor, FrameLayout.LayoutParams(-1, -1))
         videoView = video
+        smoothVideo = AirPlayPersistence.loadSmoothVideo(this)
         observeVideoWindow(video)
         gestureOverlay = gestureLayer
         settingsGestureHint = gestureHint
@@ -1664,22 +1683,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
         content.addView(
-            settingsCategoryHeader(getString(R.string.location)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(36) },
-        )
-        content.addView(
-            buildLocationReportingSection(),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
-
-        content.addView(
-            settingsCategoryHeader(getString(R.string.startup)),
+            settingsCategoryHeader(getString(R.string.automatic_connection)),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1694,6 +1698,21 @@ class CarPlayHostActivity : ComponentActivity() {
                 autoStartOnBoot = checked
                 appendLog("Boot auto-start ${if (checked) "enabled" else "disabled"}")
             },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(12) },
+        )
+
+        content.addView(
+            settingsCategoryHeader(getString(R.string.settings_navigation)),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(36) },
+        )
+        content.addView(
+            buildLocationReportingSection(),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1729,7 +1748,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
 
         content.addView(
-            settingsCategoryHeader(getString(R.string.identity_appearance)),
+            settingsCategoryHeader(getString(R.string.settings_vehicle)),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1764,7 +1783,7 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(26) },
         )
         content.addView(
-            settingsCategoryHeader(getString(R.string.display_video)),
+            settingsCategoryHeader(getString(R.string.settings_display)),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1900,13 +1919,6 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(30) },
         )
 
-        content.addView(
-            settingsCategoryHeader(getString(R.string.window)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(40) },
-        )
         content.addView(
             buildFullscreenSection(),
             LinearLayout.LayoutParams(
@@ -2557,6 +2569,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     launchCarButtonImagePicker(
                         openDocument = { imageDocumentPicker.launch(arrayOf("image/*")) },
                         getContent = { imagePicker.launch("image/*") },
+                        documentPickerIsSystem = documentPickerIsSystem(),
                     ).onFailure {
                         externalActivityInProgress = false
                         appendLog("No image picker: ${it.javaClass.simpleName}")
@@ -3479,11 +3492,29 @@ class CarPlayHostActivity : ComponentActivity() {
         // the plain canvas and one area for it.
         val inSplitScreen = isMultiWindowActive()
         val dock = CarPlayDock.load(this).also { sessionDock = it }
+        // The whole screen and CarPlay's full window in each orientation: the system bars take their
+        // place in both, so a remembered split window is sized against the window of its orientation.
+        val screen = android.util.DisplayMetrics().also { windowManager.defaultDisplay.getRealMetrics(it) }
+        val screenLong = maxOf(screen.widthPixels, screen.heightPixels)
+        val screenShort = minOf(screen.widthPixels, screen.heightPixels)
+        val (landscapeWindow, portraitWindow) = CarPlayRotation.turnedWindows(size.width, size.height,
+            screen.widthPixels, screen.heightPixels)
+        // Before DiPlay has seen a split window, expect one from the screen, its bars and Android's divider.
+        val statusBar = systemDimension("status_bar_height")
+        val navigationBar = systemDimension("navigation_bar_height")
+        val divider = (systemDimension("docked_stack_divider_thickness") -
+            2 * systemDimension("docked_stack_divider_insets")).coerceAtLeast(0)
         val splitWindow: (Boolean) -> Pair<Float, Float>? = { portrait ->
-            if (SplitScreenSettings.enabled(this) && !inSplitScreen) SplitScreenSettings.window(this, portrait) else null
+            if (SplitScreenSettings.enabled(this) && !inSplitScreen) {
+                val window = if (portrait) portraitWindow else landscapeWindow
+                val expected = SplitScreenSettings.expectedWindow(portrait, screenLong, screenShort,
+                    statusBar, navigationBar, divider)
+                SplitScreenSettings.ofWindow(SplitScreenSettings.window(this, portrait, expected),
+                    if (portrait) screenShort else screenLong, if (portrait) screenLong else screenShort,
+                    window.first, window.second)
+            } else null
         }
         val longPixels = maxOf(display.widthPixels, display.heightPixels)
-        val shortPixels = minOf(display.widthPixels, display.heightPixels)
         val square = if (CarPlayRotation.enabled(this) && !inSplitScreen) {
             CarPlayRotation.squareSide(longPixels, CarPlayRotation.picture(this), hevcEnabled, hevcSoftwareDecoderEnabled)
         } else null
@@ -3501,16 +3532,20 @@ class CarPlayHostActivity : ComponentActivity() {
             ), dock, splitWindow, startPortrait = display.heightPixels > display.widthPixels,
                 sidePanel = SidePanelSettings.enabled(this), rightHandDrive = rightHandDrive)
         } else {
-            val areaShort = (shortPixels.toLong() * square / longPixels).toInt() and 1.inv()
+            val (landscape, portrait) = CarPlayRotation.turningAreas(square, size.width, size.height,
+                screen.widthPixels, screen.heightPixels)
             CarPlayViewAreas.build(square, square, listOf(
-                CarPlayViewAreas.Screen(square, areaShort, portrait = false),
-                CarPlayViewAreas.Screen(areaShort, square, portrait = true),
+                CarPlayViewAreas.Screen(landscape.first, landscape.second, portrait = false),
+                CarPlayViewAreas.Screen(portrait.first, portrait.second, portrait = true),
             ), dock, splitWindow, startPortrait = size.height > size.width, sidePanel = SidePanelSettings.enabled(this),
                 rightHandDrive = rightHandDrive)
         }
         pendingViewAreas = viewAreas
         val declared = if (viewAreas == null) canvas else canvas.copy(viewAreas = viewAreas.areas, initialViewArea = viewAreas.current)
         if (square != null) appendLog("Turning screen: square canvas ${square}x$square, areas ${viewAreas?.areas}")
+        if (SplitScreenSettings.enabled(this) && !inSplitScreen) {
+            appendLog("Split screen expected from status bar=$statusBar navigation bar=$navigationBar divider=$divider px")
+        }
         val requestSummary = "Display request selected=${CarPlayUiScale.label(requestedPercent)} percent=$requestedPercent " +
             "surface=${size.width}x${size.height} resolution=${requestedResolutionPercent}% " +
             "base=${requestedResolutionDisplay.widthPixels}x${requestedResolutionDisplay.heightPixels} " +
@@ -3731,6 +3766,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             },
             onMediaAudioChanged = CarPlayMediaKeys::onMediaAudioChanged,
+            callEchoCancellation = AirPlayPersistence.loadCallEchoCancellation(this),
+            callVoiceFilter = AirPlayPersistence.loadCallVoiceFilter(this),
+            // Only a SurfaceView honours release timestamps; smooth video always selects one.
+            videoPacingDelayMillis = if (smoothVideo) smoothVideoDelayMillis(fps) else 0,
         )
     }
 
@@ -3866,6 +3905,15 @@ class CarPlayHostActivity : ComponentActivity() {
         val snapshot = CarPlayBackgroundSession.snapshot() ?: return false
         if (snapshot.controller.isClosed()) {
             CarPlayBackgroundSession.clear(snapshot.controller)
+            return false
+        }
+        // The sink's pacing is fixed when it is built; a session from before a Smooth video change (for
+        // example one whose reconnect stopped at a prerequisite) is stopped instead of adopted. Callers
+        // retry, and the next start matches this view.
+        if (!backgroundSessionMatchesView(snapshot.sink.videoPacingEnabled, smoothVideo)) {
+            appendLog("Background session smooth video=${snapshot.sink.videoPacingEnabled} differs from this view; " +
+                "stopping it instead of adopting it")
+            CarPlayBackgroundSession.stop { mainHandler.post { if (!isDestroyed) maybeStartCarPlay() } }
             return false
         }
         displayDiagnosticAttempt = DisplayDiagnosticSnapshot.currentAttempt(this)
@@ -4184,11 +4232,15 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         val turned = previous != null && !split && (previous.height > previous.width) != portrait
         if (turned && !areas.turnsWithScreen) return false
-        val longWindow = maxOf(display.windowWidth, display.windowHeight).toFloat()
-        val shortWindow = minOf(display.windowWidth, display.windowHeight).toFloat()
-        if (split && longWindow > 0 && shortWindow > 0) {
-            if (portrait) SplitScreenSettings.saveWindow(this, true, size.width / shortWindow, size.height / longWindow)
-            else SplitScreenSettings.saveWindow(this, false, size.width / longWindow, size.height / shortWindow)
+        if (split) {
+            // Against the whole screen, which the system bars (shown in BYD's split screen) do not change.
+            val screen = android.util.DisplayMetrics().also { windowManager.defaultDisplay.getRealMetrics(it) }
+            val screenLong = maxOf(screen.widthPixels, screen.heightPixels).toFloat()
+            val screenShort = minOf(screen.widthPixels, screen.heightPixels).toFloat()
+            if (screenLong > 0 && screenShort > 0) {
+                if (portrait) SplitScreenSettings.saveWindow(this, true, size.width / screenShort, size.height / screenLong)
+                else SplitScreenSettings.saveWindow(this, false, size.width / screenLong, size.height / screenShort)
+            }
         }
         val target = areas.indexFor(size.width, size.height, split, portrait) ?: return false
         if (sidePanelShown) resetSidePanel() // a turn or the split screen ends the side panel
@@ -4291,6 +4343,15 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         if (controller == null && adoptBackgroundSession()) return
+        // The video view is chosen once per activity; a changed Smooth video setting needs a new one.
+        if (controller == null && AirPlayPersistence.loadSmoothVideo(this) != smoothVideo) {
+            appendLog("Smooth video setting changed; rebuilding the video view")
+            // No session runs here, but a restart keeps this host as the session owner; the new instance
+            // must be able to start its own.
+            if (CarPlayBackgroundSession.isOwner(this)) CarPlayBackgroundSession.clear()
+            recreate()
+            return
+        }
         val size = activeDisplaySize ?: return
         val transportReady = if (wirelessEnabled) wirelessPermissionsReady else vpnReady
         val locationReady = !locationReportingEnabled || locationPermissionAvailable
@@ -4372,6 +4433,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayMediaKeys.detach(oldController)
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         controller = null
+        oldSink?.let(retiringSinks::add)
         sink = null
         sessionDisplay = null
         val diagnosticLog = sessionLog
@@ -4385,7 +4447,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     "restart teardownWaitCompleted=$completed " +
                     "elapsedMs=${((System.nanoTime() - started) / 1_000_000L).coerceAtLeast(0)}",
             )
-            oldSink?.close()
+            oldSink?.let(::closeRetiringSink)
             runOnUiThread {
                 if (!shuttingDown.get() && generation == restartGeneration) {
                     handshakeResetInProgress = false
@@ -4401,6 +4463,15 @@ class CarPlayHostActivity : ComponentActivity() {
         controller?.sendTouch(emptyList())
         startActivity(Intent(this, DiPlayActivity::class.java)
             .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+    }
+
+    /** Keep a timed-out sink visible to surface teardown until its codecs have actually been released. */
+    private fun closeRetiringSink(owner: AndroidMediaSink) {
+        owner.close()
+        val owners = retiringSinks
+        owner.whenVideoReleased { owners.remove(owner) }
+        // Preserve bounded teardown sequencing without blocking the UI or forgetting a live worker.
+        owner.awaitVideoReleased(sinkReleaseWaitMillis)
     }
 
     private fun openSettingsMenu() {
@@ -4520,13 +4591,14 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayMediaKeys.detach(oldController)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
+        oldSink?.let(retiringSinks::add)
         sink = null
         sessionDisplay = null
         Log.i(TAG, "shutdown reason=$reason terminateProcess=$terminateProcess")
         teardownExecutor.execute {
             oldController?.close()
             val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
-            oldSink?.close()
+            oldSink?.let(::closeRetiringSink)
             airPlayCommandExecutor.shutdown()
             if (terminateProcess) {
                 applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
@@ -4545,8 +4617,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (!texture.isAttachedToWindow) return true
                 removeVideoSurfaceProbe()
                 if (isDestroyed || videoView !== texture) return true
-                val mode = carPlayVideoSurfaceMode(texture.isHardwareAccelerated)
-                appendLog("Video output mode=$mode windowHardwareAccelerated=${texture.isHardwareAccelerated}")
+                val mode = carPlayVideoSurfaceMode(texture.isHardwareAccelerated, smoothVideo)
+                appendLog("Video output mode=$mode windowHardwareAccelerated=${texture.isHardwareAccelerated} " +
+                    "smoothVideo=$smoothVideo")
                 if (mode == CarPlayVideoSurfaceMode.TEXTURE) return true
                 useFallbackVideoSurface(texture)
                 return false // Measure the replacement before drawing the software window.
@@ -4588,7 +4661,18 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         root.addView(viewport, index, texture.layoutParams)
-        appendLog("Using SurfaceView video output: window has no hardware acceleration; picture adjustments unavailable")
+        appendLog(if (smoothVideo) {
+            "Using SurfaceView video output: smooth video, frames shown at the iPhone's frame time + a delay " +
+                "starting at ${smoothVideoDelayMillis(fps)} ms; picture adjustments unavailable"
+        } else {
+            "Using SurfaceView video output: window has no hardware acceleration; picture adjustments unavailable"
+        })
+    }
+
+    /** A dimension of the platform's own resources in pixels, or 0 when this build has none by [name]. */
+    private fun systemDimension(name: String): Int {
+        val id = resources.getIdentifier(name, "dimen", "android")
+        return if (id != 0) runCatching { resources.getDimensionPixelSize(id) }.getOrDefault(0) else 0
     }
 
     private fun attachSurface(surface: Surface) {
@@ -4858,6 +4942,9 @@ class CarPlayHostActivity : ComponentActivity() {
         const val TAG = "xcertplay-usb"
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
+        // On the teardown thread: bounded sequencing wait. Release notification retains ownership beyond
+        // this budget when a codec is still busy.
+        const val SINK_RELEASE_WAIT_MILLIS = 2_000L
         private const val CENTER_MAP_IDLE_MILLIS = 3_000L // a reconnect is quicker; a session end is not
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
