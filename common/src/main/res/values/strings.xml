@@ -527,7 +527,9 @@
     <string name="video_while_parked">Video while parked</string>
     <string name="video_while_parked_description">iOS 27: a video you send to CarPlay on the iPhone plays on the car screen while the car is in P. The player closes when you shift out of P; without ADB video stays off and the iPhone plays audio only. Plain HTTPS video (for example from Safari) plays; video protected with FairPlay, such as Apple TV+, needs a licensed receiver and does not play here. Reconnects CarPlay. Needs ADB over network on the head unit.</string>
     <string name="cluster_song">Song on the dashboard</string>
-    <string name="cluster_song_description">The CarPlay song title and artist appear in the music card on the instrument cluster, with play and pause. The card shows as BYD’s “Other” music source, because the dashboard does not draw CarPlay’s own source. Applies at once. Needs ADB over network on the head unit.</string>
+    <string name="cluster_song_description">The CarPlay title and artist appear on separate lines in the instrument cluster’s music card, with playback state and progress. Applies at once. Needs ADB over network on the head unit.</string>
+    <string name="cluster_song_artwork">Album art on the dashboard</string>
+    <string name="cluster_song_artwork_description">Requires the separately installed DiPlay BYD Music Bridge. Tested on DiLink 5.0. Turn on Song on the dashboard and turn off Song only when it changes. The bridge follows CarPlay and forwards music controls to DiPlay.</string>
     <string name="video_back_to_carplay">Back to CarPlay</string>
     <string name="video_play">Play</string>
     <string name="video_pause">Pause</string>

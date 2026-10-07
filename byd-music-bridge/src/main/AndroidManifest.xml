@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission android:name="com.shihab.diplay.permission.BYD_MUSIC_BRIDGE" android:protectionLevel="signature" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <queries>
+        <package android:name="com.shihab.diplay" />
+        <package android:name="com.shihab.diplay.hudtest" />
+    </queries>
+    <application android:label="DiPlay BYD Music Bridge" android:allowBackup="false" android:icon="@android:drawable/ic_media_play">
+        <meta-data android:name="com.shihab.diplay.musicbridge.VERSION" android:value="1" />
+        <activity android:name="com.shihab.diplay.musicbridge.BridgeActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name="com.shihab.diplay.musicbridge.BydMusicBridgeService"
+            android:exported="true" android:foregroundServiceType="mediaPlayback"
+            android:permission="com.shihab.diplay.permission.BYD_MUSIC_BRIDGE" />
+    </application>
+</manifest>

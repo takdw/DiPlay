@@ -3,8 +3,10 @@ package com.shilapi.xcertplay
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Surface
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import org.junit.After
 import org.junit.Before
@@ -18,6 +20,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
+import org.robolectric.shadows.ShadowSystemClock
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 33], manifest = Config.NONE)
@@ -136,6 +140,41 @@ class CarPlayMediaFocusForwardingTest {
         CarPlayMediaKeys.detach(controller)
         shadowOf(Looper.getMainLooper()).idle()
         verify(sink, never()).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+    }
+
+    @Test fun companionOwnsRegainWhileActiveAndIsClosedWhenCarPlayEnds() {
+        val controller = mock(CarPlayController::class.java).also(controllers::add)
+        val sink = spy(AndroidMediaSink()).also(sinks::add)
+        val listener = start(controller, sink)
+        val bridge = mock(BydMusicBridgeClient::class.java)
+        `when`(bridge.active).thenReturn(true)
+        ReflectionHelpers.setField(CarPlayMediaKeys, "bydBridge", bridge)
+        listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+        clearInvocations(sink)
+        CarPlayMediaKeys.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        verify(bridge).regainFocus()
+        // DiPlay must not reclaim focus from the allowlisted publisher on every audio callback.
+        verify(sink, never()).onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+        CarPlayMediaKeys.detach(controller)
+        verify(bridge).close()
+    }
+
+    @Test fun resumeAtTheSameReportedPositionDoesNotCountTimeSpentPaused() {
+        val controller = mock(CarPlayController::class.java).also(controllers::add)
+        val sink = spy(AndroidMediaSink()).also(sinks::add)
+        start(controller, sink)
+        val update = CarPlayMediaKeys::class.java.getDeclaredMethod("onNowPlayingChanged",
+            CarPlayController::class.java, CarPlayNowPlaying::class.java).apply { isAccessible = true }
+        fun publish(playing: Boolean) {
+            update.invoke(CarPlayMediaKeys, controller, CarPlayNowPlaying(title = "Track", elapsedMillis = 5_000, playing = playing))
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+        publish(true)
+        publish(false)
+        ShadowSystemClock.advanceBy(Duration.ofMinutes(2))
+        publish(true)
+        assertEquals(SystemClock.elapsedRealtime(), ReflectionHelpers.getField<Long>(CarPlayMediaKeys, "elapsedUpdatedAt"))
     }
 
     private fun start(controller: CarPlayController, sink: AndroidMediaSink,

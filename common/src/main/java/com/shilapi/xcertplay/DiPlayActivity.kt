@@ -1782,11 +1782,18 @@ class DiPlayActivity : ComponentActivity() {
             BydOutputSettings.setClusterSong(this, it)
             if (it) checkAdbState(mayAsk = true)
             BydNavigationOutputs.clusterSongChanged(it)
+            CarPlayMediaKeys.refreshBydBridge()
         }
         toggle(card, getString(R.string.cluster_song_on_change), getString(R.string.cluster_song_on_change_description),
             BydOutputSettings.clusterSongOnChange(this), enabled = !adbSwitchChangePending) {
             BydOutputSettings.setClusterSongOnChange(this, it)
             BydNavigationOutputs.clusterSongOnChangeChanged()
+            CarPlayMediaKeys.refreshBydBridge()
+        }
+        toggle(card, getString(R.string.cluster_song_artwork), getString(R.string.cluster_song_artwork_description),
+            BydOutputSettings.clusterSongArtwork(this)) {
+            BydOutputSettings.setClusterSongArtwork(this, it)
+            CarPlayMediaKeys.refreshBydBridge()
         }
         toggle(card, getString(R.string.carplay_call_controls_experimental),
             getString(R.string.carplay_call_controls_experimental_description),

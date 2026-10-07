@@ -200,6 +200,10 @@ The existing **Dashboard song** switch needs ADB, not the navigation receiver. I
 navigation card where that card is shown and otherwise appears once under Advanced vehicle data. It
 is not part of the legacy probe.
 
+On the tested DiLink 5.0 music card, title and artist use separate fields and the progress bar follows
+CarPlay's elapsed time. Album art uses the optional [BYD Music Bridge](BYD_MUSIC_BRIDGE.md), installed
+separately and enabled in continuous song mode.
+
 The numeric feature IDs below are used in default mode. Legacy mode uses the saved probe addresses.
 Known controller-13 values are candidates only and must still return a plausible live reading before
 DiPlay accepts them.

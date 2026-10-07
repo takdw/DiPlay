@@ -61,6 +61,54 @@ internal object CarPlayMediaKeys {
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
     private var placeholder: Bitmap? = null
+    private var bydBridge: BydMusicBridgeClient? = null
+
+    /** Applies dashboard/companion settings without reconnecting CarPlay. */
+    fun refreshBydBridge() {
+        mainHandler.post { synchronized(this) { refreshBydBridgeLocked() } }
+    }
+
+    private fun refreshBydBridgeLocked() {
+        val context = appContext ?: return
+        val target = session ?: return
+        val enabled = BydOutputSettings.clusterSong(context) && BydOutputSettings.clusterSongArtwork(context) &&
+            !BydOutputSettings.clusterSongOnChange(context)
+        if (!enabled) {
+            if (bydBridge != null) {
+                bydBridge?.close()
+                bydBridge = null
+                focusHeld = false
+                requestMainFocusLocked()
+            }
+            return
+        }
+        if (bydBridge != null) return
+        val expected = controller ?: return
+        val owner = focusOwner ?: return
+        val token = target.sessionToken
+        lateinit var bridge: BydMusicBridgeClient
+        bridge = BydMusicBridgeClient(context, token,
+            onFocus = { change ->
+                // The bridge owns focus on BYD's behalf. Keep normal duck/transient-loss behavior
+                // for Siri and other apps, and discard callbacks from a replaced session.
+                if (synchronized(this) { bydBridge === bridge && controller === expected && session?.sessionToken == token }) {
+                    onFocusChanged(expected, owner, change)
+                }
+            },
+            onUnavailable = {
+                mainHandler.post {
+                    synchronized(this) {
+                        if (bydBridge === bridge && controller === expected && session?.sessionToken == token) {
+                            bydBridge = null
+                            focusHeld = false
+                            requestMainFocusLocked()
+                        }
+                    }
+                }
+            },
+        )
+        if (bridge.connect()) bydBridge = bridge
+    }
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
@@ -109,7 +157,9 @@ internal object CarPlayMediaKeys {
                 if (nowPlaying.artworkTransferId != update.artworkTransferId) {
                     artwork = nextArtwork(update.artworkTransferId, artworkCache, artwork)
                 }
-                if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
+                if (nowPlaying.elapsedMillis != update.elapsedMillis || nowPlaying.playing != update.playing) {
+                    elapsedUpdatedAt = SystemClock.elapsedRealtime()
+                }
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
                 nowPlaying = update
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
@@ -147,6 +197,13 @@ internal object CarPlayMediaKeys {
     // keys. When CarPlay starts playing again it becomes the car's media source again, as any player
     // would; only the start counts, so a car source picked while the iPhone plays on is not undone.
     private fun regainFocusLocked() {
+        // A companion initialized or reinstalled after a failed bind can join on the next play.
+        if (bydBridge == null) refreshBydBridgeLocked()
+        bydBridge?.takeIf { it.active }?.let { it.regainFocus(); return }
+        requestMainFocusLocked()
+    }
+
+    private fun requestMainFocusLocked() {
         val request = focusRequest ?: return
         if (focusHeld) return
         val audio = appContext?.getSystemService(AudioManager::class.java) ?: return
@@ -188,6 +245,7 @@ internal object CarPlayMediaKeys {
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true
         }
+        refreshBydBridgeLocked()
         Log.i(TAG, "media keys active focusGranted=$granted")
     }
 
@@ -224,6 +282,8 @@ internal object CarPlayMediaKeys {
 
     private fun releaseLocked() {
         focusOwner = null
+        bydBridge?.close()
+        bydBridge = null
         artworkOwner = null
         artworkQueue.clear()
         session?.let {

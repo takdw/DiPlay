@@ -7,6 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BydClusterSongTest {
+    private fun expected(text: String, playing: Boolean, line: String = text,
+        durationMillis: Long? = null, elapsedMillis: Long? = null) =
+        ClusterSong(text, playing, line, artist = text.substringAfter(" — ", "").takeIf { it.isNotEmpty() },
+            durationMillis = durationMillis, elapsedMillis = elapsedMillis)
     private fun update(block: com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder.() -> Unit) =
         Iap2Messages.buildRaw(ClusterSongState.NOW_PLAYING_UPDATE, block)
 
@@ -14,15 +18,14 @@ class BydClusterSongTest {
     fun followsTitleArtistAndPlaybackStatus() {
         val state = ClusterSongState()
 
-        assertEquals(ClusterSong("Numb — Linkin Park", false, "Numb"),
+        assertEquals(expected("Numb — Linkin Park", false, "Numb"),
             state.accept(update { group(0) { string(1, "Numb"); string(12, "Linkin Park") } }))
-        assertEquals(ClusterSong("Numb — Linkin Park", true, "Numb"), state.accept(update { group(1) { u8(0, 1) } }))
-        // Elapsed time alone changes nothing on the card.
-        assertNull(state.accept(update { group(1) { u32(1, 120_706L) } }))
-        assertEquals(ClusterSong("Numb — Linkin Park", false, "Numb"), state.accept(update { group(1) { u8(0, 2) } }))
+        assertEquals(expected("Numb — Linkin Park", true, "Numb"), state.accept(update { group(1) { u8(0, 1) } }))
+        assertEquals(120_706L, state.accept(update { group(1) { u32(1, 120_706L) } })!!.elapsedMillis)
+        assertEquals(expected("Numb — Linkin Park", false, "Numb", elapsedMillis = 120_706L), state.accept(update { group(1) { u8(0, 2) } }))
         // A title-only incremental update retains the last artist.
-        assertEquals(ClusterSong("Podcast — Linkin Park", false, "Podcast"), state.accept(update { group(0) { string(1, "Podcast") } }))
-        assertEquals(ClusterSong("Podcast — Host", false, "Podcast"), state.accept(update { group(0) { string(12, "Host") } }))
+        assertEquals(expected("Podcast — Linkin Park", false, "Podcast", elapsedMillis = 120_706L), state.accept(update { group(0) { string(1, "Podcast") } }))
+        assertEquals(expected("Podcast — Host", false, "Podcast", elapsedMillis = 120_706L), state.accept(update { group(0) { string(12, "Host") } }))
     }
 
     @Test
@@ -45,11 +48,11 @@ class BydClusterSongTest {
         assertNull(state.current())
         state.accept(update { group(1) { u8(0, 1) } })
         assertNull(state.current())
-        assertEquals(ClusterSong("Next song", true),
+        assertEquals(expected("Next song", true),
             state.accept(update { group(0) { string(1, "Next song") } }))
         state.accept(update { group(0) { string(1, "  "); string(12, "Stale artist") } })
         assertNull(state.current())
-        assertEquals(ClusterSong("After clear", true),
+        assertEquals(expected("After clear", true),
             state.accept(update { group(0) { string(1, "After clear") } }))
     }
 
@@ -60,19 +63,19 @@ class BydClusterSongTest {
             group(0) { string(1, "Track"); string(12, "Artist") }
             group(1) { u8(0, 1) }
         })
-        assertEquals(ClusterSong("Lyric line — Artist", true, "Lyric line"),
+        assertEquals(expected("Lyric line — Artist", true, "Lyric line"),
             state.accept(update { group(0) { string(1, "Lyric line") } }))
-        assertNull(state.accept(update { group(0) { u32(4, 180_000L) } }))
-        assertEquals(ClusterSong("Lyric line — Artist", true, "Lyric line"), state.current())
+        assertEquals(180_000L, state.accept(update { group(0) { u32(4, 180_000L) } })!!.durationMillis)
+        assertEquals(expected("Lyric line — Artist", true, "Lyric line", durationMillis = 180_000L), state.current())
     }
 
     @Test
     fun explicitEmptyArtistClearsItWithoutChangingTitleOrPlayback() {
         val state = ClusterSongState()
         state.accept(update { group(0) { string(1, "Track"); string(12, "Artist") } })
-        assertEquals(ClusterSong("Track", false),
+        assertEquals(expected("Track", false),
             state.accept(update { group(0) { string(12, "") } }))
-        assertEquals(ClusterSong("Next line", false),
+        assertEquals(expected("Next line", false),
             state.accept(update { group(0) { string(1, "Next line") } }))
     }
 
@@ -80,9 +83,9 @@ class BydClusterSongTest {
     fun completeTrackUpdateReplacesBothTitleAndArtist() {
         val state = ClusterSongState()
         state.accept(update { group(0) { string(1, "First track"); string(12, "First artist") } })
-        assertEquals(ClusterSong("Second track — Second artist", false, "Second track"),
+        assertEquals(expected("Second track — Second artist", false, "Second track"),
             state.accept(update { group(0) { string(1, "Second track"); string(12, "Second artist") } }))
-        assertEquals(ClusterSong("Third track", false),
+        assertEquals(expected("Third track", false),
             state.accept(update { group(0) { string(1, "Third track"); string(12, "") } }))
     }
 
@@ -99,5 +102,29 @@ class BydClusterSongTest {
         val emoji = ClusterSongState.text("a" + "🎵".repeat(100), null)!!
         assertTrue(emoji.toByteArray(Charsets.UTF_16LE).size <= ClusterSongState.MAX_TEXT_BYTES)
         assertTrue(!Character.isHighSurrogate(emoji.last()))
+    }
+
+    @Test fun sparsePositionUpdatesAdvancePauseSeekAndClampAtTheTrackEnd() {
+        var now = 1_000L
+        val state = ClusterSongState { now }
+        state.accept(update {
+            group(0) { string(1, "Track"); string(12, "Artist"); u32(4, 180_000) }
+            group(1) { u8(0, 1); u32(1, 20_000) }
+        })
+        now = 6_000
+        assertEquals(25_000L, state.current()!!.position(now))
+        state.accept(update { group(1) { u8(0, 2) } })
+        now = 16_000
+        assertEquals(25_000L, state.current()!!.position(now))
+        state.accept(update { group(1) { u8(0, 1); u32(1, 175_000) } })
+        now = 26_000
+        assertEquals(180_000L, state.current()!!.position(now))
+        state.accept(update { group(1) { u32(1, 5_000) } })
+        assertEquals(5_000L, state.current()!!.position(now))
+        state.accept(update { group(0) { string(1, "") } })
+        state.accept(update { group(0) { string(1, "New track") } })
+        assertNull(state.current()!!.artist)
+        assertNull(state.current()!!.elapsedMillis)
+        assertNull(state.current()!!.durationMillis)
     }
 }
