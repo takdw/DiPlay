@@ -30,6 +30,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":musicbridge-api"))
     api(project(":shared"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

@@ -486,6 +486,8 @@
     <string name="video_while_parked_description">iOS 27: el vídeo que envías a CarPlay desde el iPhone se reproduce en la pantalla del coche mientras está en P. El reproductor se cierra al salir de P; sin ADB el vídeo queda desactivado y el iPhone solo reproduce el audio. El vídeo HTTPS normal (por ejemplo, de Safari) funciona; el vídeo protegido con FairPlay, como Apple TV+, necesita un receptor con licencia y aquí no se reproduce. Vuelve a conectar CarPlay. Requiere ADB por red en la unidad principal.</string>
     <string name="cluster_song">Canción en el cuadro</string>
     <string name="cluster_song_description">El título y el artista de la canción de CarPlay aparecen en la tarjeta de música del cuadro de instrumentos, con reproducción y pausa. La tarjeta se muestra como la fuente de música «otra» de BYD, porque el cuadro no dibuja la fuente propia de CarPlay. Se aplica al instante. Requiere ADB por red en la unidad principal.</string>
+    <string name="cluster_song_artwork">Portada del álbum en el cuadro (experimental)</string>
+    <string name="cluster_song_artwork_description">Requiere instalar DiPlay BYD Music Bridge por separado. Para DiLink 5.0. Activa Canción en el cuadro y desactiva mostrar la canción solo cuando cambia. El puente sigue CarPlay y envía los controles de música a DiPlay. Se aplica al instante.</string>
     <string name="video_back_to_carplay">Volver a CarPlay</string>
     <string name="video_play">Reproducir</string>
     <string name="video_pause">Pausa</string>

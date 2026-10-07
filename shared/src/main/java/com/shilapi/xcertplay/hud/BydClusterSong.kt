@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.hud
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import com.shilapi.xcertplay.iap2.body.Iap2BodyReader
@@ -11,17 +12,34 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** Dashboard song; [line] preserves title-only HUD text, [source] selects a note's music icon. */
-internal data class ClusterSong(val text: String, val playing: Boolean, val line: String = text, val source: Int? = null)
+internal data class ClusterSong(
+    val text: String,
+    val playing: Boolean,
+    val line: String = text,
+    val source: Int? = null,
+    val artist: String? = null,
+    val durationMillis: Long? = null,
+    val elapsedMillis: Long? = null,
+    val updatedAtMillis: Long = 0,
+) {
+    fun position(now: Long): Long? = elapsedMillis?.let {
+        val position = it + if (playing) (now - updatedAtMillis).coerceAtLeast(0) else 0
+        durationMillis?.takeIf { total -> total > 0 }?.let(position::coerceAtMost) ?: position
+    }
+}
 
 /**
  * The CarPlay song for the dashboard, from iAP2 NowPlayingUpdate (0x5001): title (1) and artist (12)
  * in MediaItemAttributes, playback status in PlaybackAttributes. Updates carry only what changed;
  * omitted fields retain their previous values, while an explicitly cleared title forgets the item.
  */
-internal class ClusterSongState {
+internal class ClusterSongState(private val clock: () -> Long = { 0L }) {
     private var title: String? = null
     private var artist: String? = null
     private var playing = false
+    private var duration: Long? = null
+    private var elapsed: Long? = null
+    private var updatedAt = 0L
     private var last: ClusterSong? = null
 
     /** Updates the cached card; null can mean unchanged or cleared, so consumers compare [current]. */
@@ -32,16 +50,33 @@ internal class ClusterSongState {
             val nextTitle = runCatching { item.optionalString(TITLE) }.getOrNull()
             if (nextTitle != null) {
                 title = nextTitle
-                if (nextTitle.isBlank()) artist = null
+                if (nextTitle.isBlank()) {
+                    artist = null
+                    duration = null
+                    elapsed = null
+                    updatedAt = 0L
+                }
             }
             if (nextTitle?.isBlank() != true) {
                 runCatching { item.optionalString(ARTIST) }.getOrNull()?.let { artist = it }
             }
+            runCatching { item.optionalU32(4) }.getOrNull()?.let { duration = it }
         }
-        runCatching { body.optionalGroup(PLAYBACK)?.optionalU8(STATUS) }.getOrNull()?.let { status ->
-            playing = status == STATUS_PLAYING || status == STATUS_SEEK_FORWARD || status == STATUS_SEEK_BACKWARD
+        runCatching { body.optionalGroup(PLAYBACK) }.getOrNull()?.let { playback ->
+            val nextPlaying = runCatching { playback.optionalU8(STATUS) }.getOrNull()?.let {
+                it == STATUS_PLAYING || it == STATUS_SEEK_FORWARD || it == STATUS_SEEK_BACKWARD
+            } ?: playing
+            val nextElapsed = runCatching { playback.optionalU32(1) }.getOrNull()
+            if ((nextElapsed != null && nextElapsed != elapsed) || nextPlaying != playing) {
+                elapsed = nextElapsed ?: last?.position(clock()) ?: elapsed
+                if (elapsed != null) updatedAt = clock()
+            }
+            playing = nextPlaying
         }
-        val next = text(title, artist)?.let { ClusterSong(it, playing, title!!.trim()) }
+        val next = text(title, artist)?.let {
+            ClusterSong(it, playing, title!!.trim(), artist = artist?.trim()?.takeIf(String::isNotEmpty),
+                durationMillis = duration, elapsedMillis = elapsed, updatedAtMillis = updatedAt)
+        }
         if (next == last) return null
         last = next
         return next
@@ -55,6 +90,9 @@ internal class ClusterSongState {
         title = null
         artist = null
         playing = false
+        duration = null
+        elapsed = null
+        updatedAt = 0L
         last = null
     }
 
@@ -76,6 +114,10 @@ internal class ClusterSongState {
         fun text(title: String?, artist: String?): String? {
             val name = title?.trim()?.takeIf { it.isNotEmpty() } ?: return null
             val full = artist?.trim()?.takeIf { it.isNotEmpty() }?.let { "$name — $it" } ?: name
+            return fit(full)
+        }
+
+        fun fit(full: String): String {
             var end = full.length
             while (full.substring(0, end).toByteArray(Charsets.UTF_16LE).size > MAX_TEXT_BYTES) {
                 end--
@@ -107,7 +149,7 @@ internal object BydClusterSong {
     private val EMPTY = ClusterSong(" ", false)
 
     private val writer = Executors.newSingleThreadScheduledExecutor { Thread(it, "diplay-cluster-song").apply { isDaemon = true } }
-    private val state = ClusterSongState() // guards wanted and note too
+    private val state = ClusterSongState(SystemClock::elapsedRealtime) // guards wanted and note too
     @Volatile private var context: Context? = null
     private var wanted: ClusterSong? = null
     private var note: Any? = null // the note on the card now, if any
@@ -115,6 +157,17 @@ internal object BydClusterSong {
     private var announced: String? = null // the last song shown in the "only when it changes" mode
     private var shown: ClusterSong? = null // writer thread
     private var firstLogged = false // writer thread
+    private var shownSeconds: Pair<Long?, Long?>? = null // writer thread
+
+    init {
+        // iOS may send position only on play/pause/seek. Keep the dashboard bar moving between frames.
+        writer.scheduleWithFixedDelay({
+            val app = context
+            val song = synchronized(state) { wanted }
+            if (app != null && song != null) runCatching { write(app, song) }
+                .onFailure { Log.w(TAG, "dashboard progress failed", it) }
+        }, 1, 1, TimeUnit.SECONDS)
+    }
 
     fun attach(appContext: Context) {
         context = appContext.applicationContext
@@ -250,15 +303,29 @@ internal object BydClusterSong {
 
     private fun write(app: Context, song: ClusterSong) {
         // Only the newest song matters; older queued ones are skipped.
-        if (synchronized(state) { wanted } != song || song == shown) return
-        val text = Base64.encodeToString(song.text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        if (synchronized(state) { wanted } != song) return
+        val seconds = Pair(song.position(SystemClock.elapsedRealtime())?.div(1000), song.durationMillis?.div(1000))
+        if (song == shown && seconds == shownSeconds) return
+        fun encoded(value: String) = Base64.encodeToString(ClusterSongState.fit(value).toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val metadataChanged = shown?.let { it.line != song.line || it.artist != song.artist || it.source != song.source } ?: true
+        if (!metadataChanged && shown?.playing == song.playing && seconds == shownSeconds) {
+            shown = song
+            return
+        }
+        val text = if (metadataChanged) encoded(song.line) else "-"
+        val artist = if (metadataChanged) encoded(song.artist?.takeIf(String::isNotBlank) ?: " ") else "-"
         val playing = when {
             song == EMPTY -> STATE_STOPPED
             song.playing -> STATE_PLAYING
             else -> STATE_PAUSED
         }
-        if (run(app, "${song.source ?: SOURCE_OTHERS} $playing $text")) {
+        val source = if (metadataChanged) (song.source ?: SOURCE_OTHERS).toString() else "-"
+        val stateArg = if (shown?.playing != song.playing || shown == null || song == EMPTY) playing.toString() else "-"
+        val position = seconds.first ?: 0L
+        val total = seconds.second ?: 0L
+        if (run(app, "$source $stateArg $text $artist $position $total")) {
             shown = song
+            shownSeconds = seconds
             if (!firstLogged) {
                 firstLogged = true
                 Log.i(TAG, "song on the dashboard")
@@ -268,14 +335,21 @@ internal object BydClusterSong {
 
     private fun clear(app: Context) {
         if (shown == null || synchronized(state) { wanted } != null) return
-        if (run(app, "- $STATE_STOPPED -", clearing = true)) shown = null
+        if (run(app, "- $STATE_STOPPED IA== IA== 0 0")) {
+            shown = null
+            shownSeconds = null
+        }
     }
 
-    private fun run(app: Context, args: String, clearing: Boolean = false): Boolean {
+    private fun run(app: Context, args: String): Boolean {
         val apk = app.applicationInfo.sourceDir
         val output = shell.run(app, "CLASSPATH=$apk app_process /system/bin ${BydClusterSongTool::class.java.name} $args")
             ?: return false
-        val succeeded = ClusterSongWriteResult.accepted(output, clearing)
+        val fields = args.split(' ')
+        val expected = listOf("source", "state", "text", "artist").filterIndexed { index, _ ->
+            fields.getOrNull(index)?.let { it != "-" } == true
+        }.toSet() + if (fields.size >= 6) setOf("progress", "time") else emptySet()
+        val succeeded = ClusterSongWriteResult.accepted(output, expected)
         if (!succeeded) Log.w(TAG, "dashboard write failed: incomplete or rejected vendor response")
         return succeeded
     }
@@ -286,15 +360,19 @@ internal object ClusterSongWriteResult {
     // The PR reporter observed this result on a DiLink 4 Seal while the music card updated.
     // Accept it only for the instrument writes below; it is not a general shell success code.
     private const val OBSERVED_VENDOR_RESULT = -2147482648
+    private val OBSERVED_VENDOR_FIELDS = setOf("source", "state", "text")
 
-    fun accepted(output: String, clearing: Boolean = false): Boolean {
-        val expected = if (clearing) setOf("state") else setOf("source", "state", "text")
+    fun accepted(output: String, clearing: Boolean = false): Boolean =
+        accepted(output, if (clearing) setOf("state") else OBSERVED_VENDOR_FIELDS)
+
+    fun accepted(output: String, expected: Set<String>): Boolean {
+        if (expected.isEmpty()) return false
         val received = mutableSetOf<String>()
         for (line in output.lineSequence().map { it.trim() }.filter { '=' in it }) {
             val name = line.substringBefore('=').trim()
             val result = line.substringAfter('=').trim().toIntOrNull() ?: return false
             if (name !in expected || !received.add(name) ||
-                (result != 0 && result != OBSERVED_VENDOR_RESULT)) return false
+                (result != 0 && !(name in OBSERVED_VENDOR_FIELDS && result == OBSERVED_VENDOR_RESULT))) return false
         }
         return received == expected
     }
@@ -302,15 +380,19 @@ internal object ClusterSongWriteResult {
 
 /**
  * Runs under the head unit's adb shell through app_process, not in DiPlay: writes the dashboard's music
- * source, play state and song text to the instrument (device 1007), as BYD's media controller does
- * (source 0x33F00030, state 0x43E0000A, text 0x43FB1008 in UTF-16LE). Arguments: source, state and
- * base64 UTF-8 text, "-" to skip one. Prints "name=result" per write; 0 is success.
+ * title/state/progress to instrument 1007 and artist/time to audio device 1002, as the tested BYD
+ * media controller does. Arguments: source, state, base64 UTF-8 title, base64 UTF-8 artist,
+ * elapsed seconds, total seconds. "-" skips a source/state/text field. Prints "name=result";
+ * 0 is success. The time fields must be sent together through setIntArray, not individual writes.
  */
 object BydClusterSongTool {
     private const val DEVICE = 1007
     private const val SOURCE = 0x33F00030
     private const val STATE = 0x43E0000A
     private const val TEXT = 0x43FB1008
+    private const val ARTIST = 0x43F91008
+    private const val PROGRESS = 0x43E00010
+    private const val AUDIO_DEVICE = 1002
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -342,9 +424,26 @@ object BydClusterSongTool {
         val setInfo = deviceClass.getMethod("setMediaInfo", Int::class.java, Int::class.java, ByteArray::class.java)
         args.getOrNull(0)?.takeIf { it != "-" }?.let { println("source=${setState.invoke(device, DEVICE, SOURCE, it.toInt())}") }
         args.getOrNull(1)?.takeIf { it != "-" }?.let { println("state=${setState.invoke(device, DEVICE, STATE, it.toInt())}") }
-        args.getOrNull(2)?.takeIf { it != "-" }?.let { encoded ->
-            val text = String(java.util.Base64.getDecoder().decode(encoded), Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
-            println("text=${if (text.size > ClusterSongState.MAX_TEXT_BYTES) "ERR too long" else setInfo.invoke(device, DEVICE, TEXT, text)}")
+        fun writeText(index: Int, name: String, target: Int, feature: Int) {
+            args.getOrNull(index)?.takeIf { it != "-" }?.let { encoded ->
+                val text = String(java.util.Base64.getDecoder().decode(encoded), Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
+                println("$name=${if (text.size > ClusterSongState.MAX_TEXT_BYTES) "ERR too long" else setInfo.invoke(device, target, feature, text)}")
+            }
+        }
+        writeText(2, "text", DEVICE, TEXT)
+        writeText(3, "artist", AUDIO_DEVICE, ARTIST)
+        if (args.size >= 6) {
+            val elapsed = args[4].toLong().coerceAtLeast(0)
+            val total = args[5].toLong().coerceAtLeast(0)
+            val percent = if (total > 0) (elapsed * 100 / total).coerceIn(0, 100).toInt() else 0
+            println("progress=${setState.invoke(device, DEVICE, PROGRESS, percent)}")
+            val managerClass = Class.forName("android.hardware.bydauto.BYDAutoDeviceManager")
+            val manager = managerClass.getMethod("getInstance", Context::class.java).invoke(null, context)
+            val features = intArrayOf(0x4E100008, 0x4E100010, 0x4E100018, 0x4E100020, 0x4E100028, 0x4E100030)
+            fun hms(seconds: Long) = intArrayOf((seconds / 3600).coerceAtMost(255).toInt(), (seconds / 60 % 60).toInt(), (seconds % 60).toInt())
+            val values = hms(elapsed) + hms(total)
+            println("time=${managerClass.getMethod("setIntArray", Int::class.java, IntArray::class.java, IntArray::class.java)
+                .invoke(manager, AUDIO_DEVICE, features, values)}")
         }
     }
 

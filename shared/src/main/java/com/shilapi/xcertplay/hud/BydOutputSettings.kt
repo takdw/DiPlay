@@ -18,6 +18,7 @@ object BydOutputSettings {
     private const val KEY_VIDEO_WHILE_PARKED = "video_while_parked"
     private const val KEY_CLUSTER_SONG = "cluster_song"
     private const val KEY_CLUSTER_SONG_ON_CHANGE = "cluster_song_on_change"
+    private const val KEY_CLUSTER_SONG_ARTWORK = "cluster_song_artwork"
     private const val KEY_HUD_SONG = "hud_song"
     private const val KEY_CARPLAY_CALLS = "carplay_calls"
     private const val KEY_CARPLAY_CALL_CONTROLS = "carplay_call_controls_experimental"
@@ -78,6 +79,11 @@ object BydOutputSettings {
 
     fun setClusterSong(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CLUSTER_SONG, enabled).apply()
+
+    /** Optional, separately installed DiLink 5.0 artwork companion; continuous music-card mode only. */
+    fun clusterSongArtwork(context: Context): Boolean = prefs(context).getBoolean(KEY_CLUSTER_SONG_ARTWORK, false)
+    fun setClusterSongArtwork(context: Context, enabled: Boolean) =
+        prefs(context).edit().putBoolean(KEY_CLUSTER_SONG_ARTWORK, enabled).apply()
 
     /** Show CarPlay calls on the dashboard and HUD like BYD's CarPlay app (needs ADB over network); applies at once. */
     fun carPlayCalls(context: Context): Boolean = prefs(context).getBoolean(KEY_CARPLAY_CALLS, false)
