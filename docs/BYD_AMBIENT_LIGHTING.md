@@ -8,6 +8,8 @@ Configure the feature while parked. Control is off by default. Saving an enabled
 
 Only head units exposing the expected BYD interior-lamp API and valid color, brightness and area values are supported. This is not a claim of support for every BYD model, model year or firmware. Unknown or unreadable states are rejected before taking control. Missing older preferences use defaults; absent or incorrectly typed enable values remain disabled.
 
+On the tested Sealion 06, this implementation controls the interior light strips. The passenger-dashboard ambient panel is a separate, unresolved integration: the user confirmed that it reacts to OEM Bluetooth music but stays dark during this CarPlay effect. The front/rear/all area values refer to this lamp API's zones; they do not establish control of every illuminated surface in the cabin.
+
 ## Behavior
 
 The media channel supplies energy from successful PCM writes. Only level and frame metadata are retained, not recorded audio. AudioTrack playback position ties the analysis to played audio. Navigation and call channels do not supply the light envelope. Phone playback ownership prevents stale callbacks from a replaced CarPlay session from resuming the lights.
@@ -34,13 +36,23 @@ Fork validation on 2026-10-08 passed the complete `AGENTS.md` Android checks plu
 
 The standalone **DiPlay HUD Test 0.2.14** APK was installed as an update on the same parked Sealion 06, retaining preferences, existing local ADB authorization, and the installed music companion. The installed lamp helper completed a read-only protocol check without extra stdout or a hanging process.
 
-- The user confirmed that cabin color and brightness changes were visible during CarPlay music. The app reported hundreds of successful lamp applies with readback, including changing color numbers and brightness levels. Bass priority and sound energy configurations ran; this does not establish perceptually exact beat synchronization or every effect mode.
+- The user confirmed that the interior light strips changed color and brightness during CarPlay music. The app reported hundreds of successful lamp applies with readback, including changing color numbers and brightness levels. Bass priority and sound energy configurations ran; this does not establish perceptually exact beat synchronization, every effect mode, or passenger-dashboard ambient-panel support.
 - The user confirmed separate driver-screen title/artist lines, an advancing progress bar, and album artwork in the updated build. Main, companion and BYD media sessions carried the playing track.
 - A pause command through DiPlay's media-button session produced paused playback state 2 and stable front/rear raw brightness `1/1`, area `3`. Resume produced playing state 3 and changing above-minimum brightness again.
 - Disabling control through its Save button restored the original five-field state `28,28,6,6,3`. Re-enabling passed the read-only gate and preserved the saved sound energy mode, brightness ceiling 6, and 31 selected color numbers.
 - Disconnecting CarPlay through its UI held both lamp zones at raw brightness 1, area 3. Reconnecting through the saved phone configuration returned to playing state 3 and resumed successful lamp updates.
 
 The short test did not verify each selected color independently, every mode, unequal front/rear restoration, incoming calls or navigation audio interruptions, extended driving, blocked-service recovery or power-loss restoration. Sequential independent getter samples during live writes can span different updates; paused and disabled restoration checks used stable states. Local diagnostic logs remain in ignored build output, with no phone records or authentication material added to the public source.
+
+### Passenger-dashboard investigation: 2026-10-08
+
+The user confirmed the passenger-dashboard panel reacting during OEM Bluetooth playback. Ten narrowly selected lamp/music/rhythm getter values were identical between the CarPlay and Bluetooth samples, so those samples did not identify a mode-setting difference. Bluetooth generated changing 16-level `BYDAutoAudioDevice.setAmbientLightFreq` calls from the system server; a ten-second sample during user-confirmed CarPlay playback contained no such native calls.
+
+Inspection of this firmware's native audio service found an automatic lighting-visualizer package list containing `cn.kuwo.kwmusiccar`, `com.kugou.android.auto`, `com.byd.dynaudio_app`, `com.netease.cloudmusic.iot`, and `com.byd.caraudioaosp`. Neither DiPlay nor the artwork companion is in that list. The native color effect also toggles the audio-system `lamp_status` parameter and submits separate ECU color/brightness data. The current strip implementation does not invoke this native visualizer or reproduce those outputs.
+
+A separate, Park-checked 30-second shell probe submitted 148 accepted spectrum updates using the native SDK method, then successfully submitted a quiet frame. The user observed no visible change. This establishes that accepted spectrum writes alone did not activate the passenger panel in that test; it does not establish that the panel is inaccessible. These probes are diagnostics, not an installed dashboard-panel fix. Decompiled vendor software and device logs remain outside the public source tree.
+
+A second, Park-checked probe requested a 40-second native `IAudioService.startAudioOutput` session with its own Binder token and an unused approved OEM source identifier. No app was renamed or installed, and the probe made no audio-focus request. The user reported that the passenger panel remained dark while music continued. Sampled system-server spectrum frames contained only minimum levels; these samples do not establish the cause of the missing panel response. The matching stop request returned normally, the helper exited, and the music-mode, rhythm-mode and main-switch getters remained at their pre-test values `1`, `4` and `2`. The full native-session request therefore remains an unsuccessful diagnostic, not a verified integration route.
 
 The focused JVM suite covers playback ownership, activity policy, written-versus-played envelopes, sampled beats, palette/low-frequency analysis, brightness smoothing, write cadence, fake-client recovery, protocol validation, restore order and worker ownership. Additional preference tests cover missing keys, legacy single-color settings and malformed values. UI tests cover Cancel, failed read-only access checks and a completed check after the dialog was canceled. Compilation and test results for this patch are recorded by the contribution review, separately from earlier vehicle observations.
 
