@@ -377,6 +377,8 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        BydMusicBridgeStartup.initialize(this)
+        CarPlayMediaKeys.refreshBydBridge()
         // Returning from another activity can bring the head unit's own density back.
         if (enforceInterfaceSize()) render()
         if (Build.VERSION.SDK_INT < 33 && AppLocale.preference(this) != languagePreferenceAtCreate) {
@@ -2561,6 +2563,7 @@ class DiPlayActivity : ComponentActivity() {
             getString(R.string.cluster_song_description),
             BydOutputSettings.clusterSong(this), enabled = !adbSwitchChangePending) {
             BydOutputSettings.setClusterSong(this, it)
+            BydMusicBridgeStartup.initialize(this)
             if (it) checkAdbState(mayAsk = true)
             BydNavigationOutputs.clusterSongChanged(it)
             CarPlayMediaKeys.refreshBydBridge()
@@ -2568,12 +2571,14 @@ class DiPlayActivity : ComponentActivity() {
         toggle(card, getString(R.string.cluster_song_on_change), getString(R.string.cluster_song_on_change_description),
             BydOutputSettings.clusterSongOnChange(this), enabled = !adbSwitchChangePending) {
             BydOutputSettings.setClusterSongOnChange(this, it)
+            BydMusicBridgeStartup.initialize(this)
             BydNavigationOutputs.clusterSongOnChangeChanged()
             CarPlayMediaKeys.refreshBydBridge()
         }
         toggle(card, getString(R.string.cluster_song_artwork), getString(R.string.cluster_song_artwork_description),
             BydOutputSettings.clusterSongArtwork(this)) {
             BydOutputSettings.setClusterSongArtwork(this, it)
+            BydMusicBridgeStartup.initialize(this)
             CarPlayMediaKeys.refreshBydBridge()
         }
         toggle(card, getString(R.string.carplay_call_controls_experimental),

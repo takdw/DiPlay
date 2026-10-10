@@ -8,6 +8,12 @@
     </queries>
     <application android:label="DiPlay BYD Music Bridge" android:allowBackup="false" android:icon="@android:drawable/ic_media_play">
         <meta-data android:name="com.shihab.diplay.musicbridge.VERSION" android:value="1" />
+        <meta-data android:name="com.shihab.diplay.musicbridge.AUTO_START_ACTIVITY"
+            android:value="com.shihab.diplay.musicbridge.BridgeStartupActivity" />
+        <activity android:name="com.shihab.diplay.musicbridge.BridgeStartupActivity"
+            android:exported="true" android:excludeFromRecents="true"
+            android:permission="com.shihab.diplay.permission.BYD_MUSIC_BRIDGE"
+            android:theme="@android:style/Theme.NoDisplay" />
         <activity android:name="com.shihab.diplay.musicbridge.BridgeActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

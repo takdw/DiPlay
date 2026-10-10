@@ -8,6 +8,7 @@ public final class BridgeProtocol {
     public static final String SERVICE = "com.shihab.diplay.musicbridge.BydMusicBridgeService";
     public static final String PERMISSION = "com.shihab.diplay.permission.BYD_MUSIC_BRIDGE";
     public static final String VERSION_META = "com.shihab.diplay.musicbridge.VERSION";
+    public static final String AUTO_START_META = "com.shihab.diplay.musicbridge.AUTO_START_ACTIVITY";
     public static final int VERSION = 1;
     public static final String TOKEN = "session_token";
     public static final int ATTACH = 1;
